@@ -17,6 +17,22 @@
  */
 package org.apache.ivy.ant;
 
+import junit.framework.TestCase;
+import org.apache.ivy.Ivy;
+import org.apache.ivy.TestHelper;
+import org.apache.ivy.core.module.descriptor.DependencyDescriptor;
+import org.apache.ivy.core.module.descriptor.ModuleDescriptor;
+import org.apache.ivy.core.module.id.ModuleRevisionId;
+import org.apache.ivy.core.report.ConfigurationResolveReport;
+import org.apache.ivy.core.report.ResolveReport;
+import org.apache.ivy.core.resolve.IvyNode;
+import org.apache.ivy.core.resolve.ResolveOptions;
+import org.apache.ivy.core.settings.IvySettings;
+import org.apache.ivy.plugins.parser.xml.XmlModuleDescriptorParser;
+import org.apache.ivy.util.FileUtil;
+import org.apache.tools.ant.Project;
+import org.apache.tools.ant.taskdefs.Delete;
+
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
@@ -27,18 +43,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-
-import org.apache.ivy.TestHelper;
-import org.apache.ivy.core.module.descriptor.DependencyDescriptor;
-import org.apache.ivy.core.module.descriptor.ModuleDescriptor;
-import org.apache.ivy.core.module.id.ModuleRevisionId;
-import org.apache.ivy.core.settings.IvySettings;
-import org.apache.ivy.plugins.parser.xml.XmlModuleDescriptorParser;
-import org.apache.ivy.util.FileUtil;
-import org.apache.tools.ant.Project;
-import org.apache.tools.ant.taskdefs.Delete;
-
-import junit.framework.TestCase;
+import java.util.Set;
 
 public class IvyDeliverTest extends TestCase {
 
@@ -561,5 +566,65 @@ public class IvyDeliverTest extends TestCase {
             dds[1].getDependencyRevisionId());
         assertEquals(ModuleRevisionId.newInstance("org1", "mod1.2", "1.1"),
             dds[2].getDependencyRevisionId());
+    }
+
+    public void testDependencyVersionAcrossConfs() throws Exception {
+        final Ivy ivy = Ivy.newInstance();
+        ivy.configure(new File("test/repositories/ivysettings.xml"));
+
+        final ResolveOptions options = new ResolveOptions().setConfs(new String[] {"*"});
+        options.setResolveId("resolve.id.ivy-1485");
+
+        final File ivyFile = new File("test/repositories/1/foo/ivy-deliver-dep-across-confs.xml");
+        // normal resolve, the file goes in the cache
+        final ResolveReport resolutionReport = ivy.resolve(ivyFile, options);
+        // verify the dependencies were correctly resolved
+        this.verifyResolutionReport(ivyFile, resolutionReport);
+
+        // now do the delivery of this resolution
+        deliver.setResolveId("resolve.id.ivy-1485");
+        deliver.setPubrevision("2.1.2");
+        final String deliveryPattern = "build/test/delivery/ivy-[revision].xml";
+        deliver.setDeliverpattern(deliveryPattern);
+        deliver.setStatus("released");
+        deliver.execute();
+
+        // test the delivery file
+        final File deliveredIvyFile = new File("build/test/delivery/ivy-2.1.2.xml");
+        assertTrue("Deliver task did not deliver a ivy file at " + deliveredIvyFile, deliveredIvyFile.isFile());
+        // now resolve this delivered file to ensure the right dependencies were delivered
+        final ResolveReport resolutionReportOfDeliveredFile = ivy.resolve(deliveredIvyFile, options);
+        // verify the resolution
+        this.verifyResolutionReport(deliveredIvyFile, resolutionReportOfDeliveredFile);
+    }
+
+    private void verifyResolutionReport(final File sourceIvyFile, final ResolveReport resolutionReport) {
+        assertFalse("Resolution report for ivy file " + sourceIvyFile + " has errors", resolutionReport.hasError());
+        // verify conf1 resolution report
+        final String conf1 = "conf1";
+        final ConfigurationResolveReport conf1ResolveReport = resolutionReport.getConfigurationReport(conf1);
+        assertNotNull("No resolution report found for conf " + conf1, conf1ResolveReport);
+        final Set<ModuleRevisionId> expectedDepsInConf1 = new HashSet<ModuleRevisionId>();
+        expectedDepsInConf1.add(ModuleRevisionId.newInstance("foo", "ivy1485-a", "1.0"));
+        assertDependenciesPresent(conf1ResolveReport, expectedDepsInConf1);
+
+        // verify conf2 resolution report
+        final String conf2 = "conf2";
+        final ConfigurationResolveReport conf2ResolveReport = resolutionReport.getConfigurationReport(conf2);
+        assertNotNull("No resolution report found for conf " + conf2, conf2ResolveReport);
+        final Set<ModuleRevisionId> expectedDepsInConf2 = new HashSet<ModuleRevisionId>();
+        expectedDepsInConf2.add(ModuleRevisionId.newInstance("foo", "ivy1485-a", "2.0"));
+        expectedDepsInConf2.add(ModuleRevisionId.newInstance("foo", "ivy1485-b", "1.0"));
+        assertDependenciesPresent(conf2ResolveReport, expectedDepsInConf2);
+    }
+
+    private static void assertDependenciesPresent(final ConfigurationResolveReport configResovleReport, final Set<ModuleRevisionId> expectedDependencies) {
+        final String conf = configResovleReport.getConfiguration();
+        assertNotNull("No resolution report found for conf " + conf, configResovleReport);
+        assertEquals("Unresolved dependencies present in configuration " + conf, 0, configResovleReport.getUnresolvedDependencies().length);
+        for (final ModuleRevisionId expectedDep : expectedDependencies) {
+            final IvyNode resolvedDep = configResovleReport.getDependency(expectedDep);
+            assertNotNull("Dependency " + expectedDep + " was not resolved in configuration " + conf, resolvedDep);
+        }
     }
 }

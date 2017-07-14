@@ -671,11 +671,9 @@ public class XmlModuleDescriptorParser extends AbstractModuleDescriptorParser {
             File file = new File(location);
             if (!file.isAbsolute()) {
                 URL url = settings.getRelativeUrlResolver().getURL(descriptorURL, location);
-                try {
-                    file = new File(new URI(url.toExternalForm()));
-                } catch (URISyntaxException e) {
-                    file = new File(url.getPath());
-                }
+                // create the File instance using the getFile() API of the URL, which is expected to include
+                // even the query params along with the path of the URL
+                file = new File(url.getFile());
             }
 
             file = FileUtil.normalize(file.getAbsolutePath());

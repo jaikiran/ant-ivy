@@ -1503,4 +1503,39 @@ public class XmlModuleDescriptorParserTest extends AbstractModuleDescriptorParse
             Files.delete(parentIvyXMLPath);
         }
     }
+
+    /**
+     * Tests that when the <code>location</code> attribute of the <code>extends</code> element of a module descriptor
+     * file, includes a relative path with characters that {@link java.net.URI} considers
+     * as encoded characters (for example <code>%2F</code>) then the module descriptor and the location of
+     * the parent descriptor, are resolved and parsed correctly.
+     *
+     * @throws Exception
+     * @see <a href="https://issues.apache.org/jira/browse/IVY-1562">IVY-1562</a> for more details
+     */
+    @Test
+    public void testExtendsRelativeLocation() throws Exception {
+        final URL ivyXML = this.getClass().getResource("foo%2Fbar/hello/test-ivy-extends-relative.xml");
+        assertNotNull("Ivy xml file is missing", ivyXML);
+        final URL parentIvyXML = this.getClass().getResource("foo%2Fbar/parent-ivy.xml");
+        assertNotNull("Parent Ivy xml file is missing", parentIvyXML);
+        // now start parsing the Ivy xml
+        final ModuleDescriptor md = XmlModuleDescriptorParser.getInstance().parseDescriptor(settings, ivyXML, true);
+        assertNotNull("Parsed module descriptor is null", md);
+        assertEquals("Unexpected org for the parsed module descriptor", "myorg", md.getModuleRevisionId().getOrganisation());
+        assertEquals("Unexpected module name for the parsed module descriptor", "mymodule", md.getModuleRevisionId().getName());
+        assertEquals("Unexpected revision for the parsed module descriptor", "1.0.0", md.getModuleRevisionId().getRevision());
+
+        final Configuration[] confs = md.getConfigurations();
+        assertNotNull("No configurations found in module descriptor", confs);
+        assertEquals("Unexpected number of configurations found in module descriptor", 3, confs.length);
+
+        final Set<String> expectedConfs = new HashSet<>(Arrays.asList("parent-conf1", "parent-conf2", "conf2"));
+        for (final Configuration conf : confs) {
+            assertNotNull("One of the configurations was null in module descriptor", conf);
+            assertTrue("Unexpected configuration " + conf.getName() + " found in parsed module descriptor", expectedConfs.remove(conf.getName()));
+        }
+        assertTrue("Missing configurations " + expectedConfs + " from the parsed module descriptor", expectedConfs.isEmpty());
+    }
+
 }

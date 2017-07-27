@@ -253,8 +253,9 @@ public class RetrieveTest {
             "jar", "default"));
     }
 
-    private void assertLink(final String filename) throws IOException {
-        assertTrue(filename + " was expected to be a symlink", Files.isSymbolicLink(Paths.get(filename)));
+    private void assertLink(final String filePath) throws IOException {
+        final File file = new File(filePath);
+        assertTrue(file.getAbsolutePath() + " was expected to be a symlink", Files.isSymbolicLink(file.toPath()));
     }
 
     @Test

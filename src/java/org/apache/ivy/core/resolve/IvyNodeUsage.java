@@ -24,10 +24,15 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
+import org.apache.ivy.core.module.descriptor.DefaultIncludeRule;
 import org.apache.ivy.core.module.descriptor.DependencyArtifactDescriptor;
 import org.apache.ivy.core.module.descriptor.DependencyDescriptor;
 import org.apache.ivy.core.module.descriptor.IncludeRule;
 import org.apache.ivy.core.module.descriptor.WorkspaceModuleDescriptor;
+import org.apache.ivy.core.module.id.ArtifactId;
+import org.apache.ivy.core.module.id.ModuleId;
+import org.apache.ivy.plugins.matcher.ExactPatternMatcher;
+import org.apache.ivy.plugins.matcher.PatternMatcher;
 
 /**
  * Class collecting usage data for an IvyNode.
@@ -239,16 +244,33 @@ public class IvyNodeUsage {
             return null;
         }
         Set<IncludeRule> dependencyIncludes = new HashSet<>();
+        boolean atLeastOneDependerNeedsAllArtifacts = false;
+        boolean atLeastOneDependerHasSpecificArtifactSelection = false;
         for (Depender depender : dependersInConf) {
-            IncludeRule[] rules = depender.dd.getIncludeRules(depender.dependerConf);
-            if (rules == null || rules.length == 0) {
+            final boolean declaresArtifacts = dependencyDeclaresArtifacts(depender.dd, depender.dd.getModuleConfigurations());
+            final IncludeRule[] rules = depender.dd.getIncludeRules(depender.dependerConf);
+            final boolean hasIncludeRule = rules != null && rules.length > 0;
+            if (hasIncludeRule) {
+                dependencyIncludes.addAll(Arrays.asList(rules));
+            }
+            if (declaresArtifacts || hasIncludeRule) {
+                atLeastOneDependerHasSpecificArtifactSelection = true;
+            }
+            if (!hasIncludeRule && !declaresArtifacts) {
+                atLeastOneDependerNeedsAllArtifacts = true;
                 // no include rule in at least one depender -> we must include everything,
                 // and so return no include rule at all
-                return null;
             }
-            dependencyIncludes.addAll(Arrays.asList(rules));
+        }
+        if (atLeastOneDependerHasSpecificArtifactSelection && atLeastOneDependerNeedsAllArtifacts) {
+            dependencyIncludes.add(includeAllOtherArtifacts());
         }
         return dependencyIncludes;
+    }
+
+    private static boolean dependencyDeclaresArtifacts(final DependencyDescriptor dd, final String[] moduleConfs) {
+        final DependencyArtifactDescriptor[] dads = dd.getDependencyArtifacts(moduleConfs);
+        return dads != null && dads.length > 0;
     }
 
     protected void removeRootModuleConf(String rootModuleConf) {
@@ -312,5 +334,14 @@ public class IvyNodeUsage {
         }
         return false;
     }
+
+    private IncludeRule includeAllOtherArtifacts() {
+        final ArtifactId aid = new ArtifactId(
+                new ModuleId(PatternMatcher.ANY_EXPRESSION, PatternMatcher.ANY_EXPRESSION),
+                PatternMatcher.ANY_EXPRESSION, PatternMatcher.ANY_EXPRESSION,
+                PatternMatcher.ANY_EXPRESSION);
+        return new DefaultIncludeRule(aid, new ExactPatternMatcher(), null);
+    }
+
 
 }

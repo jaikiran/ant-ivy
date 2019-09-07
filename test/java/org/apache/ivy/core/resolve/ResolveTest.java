@@ -6444,10 +6444,80 @@ public class ResolveTest {
         assertTrue("Missing artifact(s) with classifiers " + classifiers, classifiers.isEmpty());
     }
 
+
+    @Test
+    public void testIvy1580() throws Exception {
+        final File ivyXML = new File("test/repositories/1/ivy-1580/ivy-1580.xml");
+        final ResolveReport resolveReport = ivy.resolve(ivyXML.toURI().toURL(),
+                new ResolveOptions().setConfs(new String[]{"*"}));
+        assertFalse("Resolution report has failures", resolveReport.hasError());
+        final String rootModuleConf = "default";
+        // get the "default" conf, resolution report for the org.apache:1580:1.0.0 module (represented by the
+        // ivy-1580.xml module descriptor)
+        final ConfigurationResolveReport confReport = resolveReport.getConfigurationReport(rootModuleConf);
+        assertNotNull(rootModuleConf + " conf resolution report for " +
+                resolveReport.getModuleDescriptor().getModuleRevisionId() + " is null", confReport);
+
+        final ModuleRevisionId apiDependencyId = ModuleRevisionId.newInstance("org.apache", "1580-foo-api", "1.2.3");
+        final IvyNode apiDepNode = confReport.getDependency(apiDependencyId);
+        assertNotNull("Dependency " + apiDependencyId + " not found in conf resolve report", apiDepNode);
+        final Artifact[] apiArtifacts = apiDepNode.getArtifacts(rootModuleConf);
+        assertNotNull("No artifacts available for dependency " + apiDependencyId, apiArtifacts);
+        assertEquals("Unexpected number of artifacts for dependency " + apiDependencyId, 2, apiArtifacts.length);
+        boolean foundTestJarType = false;
+        boolean foundJarType = false;
+        for (final Artifact apiArtifact : apiArtifacts) {
+            assertEquals("Unexpected artifact name", "1580-foo-api", apiArtifact.getName());
+            assertNotNull("Artifact type is null for " + apiArtifact, apiArtifact.getType());
+            final ArtifactDownloadReport apiDownloadReport = assertArtifactPresentOnlyOnce(apiArtifact, confReport.getAllArtifactsReports());
+            final File apiJar = apiDownloadReport.getLocalFile();
+            assertNotNull("artifact jar file is null for " + apiArtifact, apiJar);
+            switch (apiArtifact.getType()) {
+                case "test-jar" : {
+                    assertFalse("More than 1 test-jar artifact found", foundTestJarType);
+                    foundTestJarType = true;
+                    assertJarContains(apiJar, "api-test-file.txt");
+                    break;
+                }
+                case "jar" : {
+                    assertFalse("More than 1 jar artifact found", foundJarType);
+                    foundJarType = true;
+                    assertJarContains(apiJar, "api-file.txt");
+                    break;
+                }
+                default: {
+                    fail("unexpected artifact type " + apiArtifact.getType() + " for artifact " + apiArtifact);
+                }
+            }
+        }
+        assertTrue("No test-jar artifact found for dependency " + apiDependencyId, foundTestJarType);
+        assertTrue("No jar artifact found for dependency " + apiDependencyId, foundJarType);
+
+        final ModuleRevisionId implDepId = ModuleRevisionId.newInstance("org.apache", "1580-foo-impl", "1.2.3");
+        final IvyNode implDepNode = confReport.getDependency(implDepId);
+        assertNotNull("Dependency " + implDepId + " not found in conf resolve report", implDepNode);
+
+    }
+
     private void assertJarContains(final File jar, final String jarEntryPath) throws IOException {
         try (final JarFile jarFile = new JarFile(jar)) {
             final JarEntry entry = jarFile.getJarEntry(jarEntryPath);
             assertNotNull(jarEntryPath + " is missing from jar file " + jar, entry);
         }
+    }
+
+    private static ArtifactDownloadReport assertArtifactPresentOnlyOnce(final Artifact artifact,
+                                                      final ArtifactDownloadReport[] downloadReports) {
+        ArtifactDownloadReport downloadReport = null;
+        for (final ArtifactDownloadReport artifactDownloadReport : downloadReports) {
+            if (artifactDownloadReport.getArtifact().equals(artifact)) {
+                if (downloadReport != null) {
+                    fail("More than one artifact download reports found for " + artifact);
+                }
+                downloadReport = artifactDownloadReport;
+            }
+        }
+        assertNotNull("Artifact download report unavailable for " + artifact, downloadReport);
+        return downloadReport;
     }
 }
